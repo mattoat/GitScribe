@@ -10,6 +10,7 @@ import (
 	"strings"
 	"os"
 	"bufio"
+	"regexp"
 )
 
 // LLMConfig holds configuration for the OpenAI API
@@ -175,14 +176,14 @@ func GeneratePRMessage(commits string, config LLMConfig, template string) (strin
 	}
 
 	// Create the system prompt using the template
-	systemPrompt := fmt.Sprintf(getQuestionsPrompt(config.EnableQuestions), `You are a professional software engineer who has finished a feature branch and is creating a pull request. 
-	You will be given a list of commit messages from the branch and a PR template. Use the template to generate a comprehensive PR description.
-	The PR description should clearly explain the changes, their purpose, and any important implementation details. 
-	Do not include any other texts about testing, a human who will review your PR message will fill that part out.
-	IMPORTANT: You MUST include the ENTIRE template in your response, including ALL sections at the end.
-	%s
-	Use the following template format for your response:
-	%s`, template)
+	systemPrompt := fmt.Sprintf(
+	`You are a professional software engineer who has finished a feature branch and is creating a pull request. 
+	You will be given a list of commit messages from the branch and a PR template. Use the template to generate a 
+	comprehensive PR description. The PR description should clearly explain the changes, their purpose, and any 
+	important implementation details.Do not include any other texts about testing, a human who will review 
+	your PR message will fill that part out. IMPORTANT: You MUST include the ENTIRE template in your response, 
+	including ALL sections at the end. %s Use the following template format for your response:
+	%s`, getQuestionsPrompt(config.EnableQuestions), template)
 
 	// Prepare the request
 	messages := []ChatMessage{
@@ -328,67 +329,62 @@ func makeOpenAIRequest(messages []ChatMessage, config LLMConfig) (string, error)
 
 // extractQuestions checks if the response contains questions and extracts them
 func extractQuestions(response string) ([]QuestionResponse, bool) {
-	// Check if the response contains a JSON object with questions
-	startIdx := strings.Index(response, "{\"questions\":")
-	if startIdx == -1 {
-		return nil, false
-	}
-
-	endIdx := -1
-	// Find the closing brace that matches the opening brace
-	braceCount := 0
-	for i := startIdx; i < len(response); i++ {
-		if response[i] == '{' {
-			braceCount++
-		} else if response[i] == '}' {
-			braceCount--
-			if braceCount == 0 {
-				endIdx = i
-				break
-			}
-		}
-	}
-	
-	if endIdx == -1 {
-		endIdx = strings.Index(response[startIdx:], "}") + startIdx
-		if endIdx == -1 {
-			return nil, false
-		}
-	}
-
-	jsonStr := response[startIdx : endIdx+1]
-	
+	// Try to parse the entire response as JSON first
 	var questionsObj struct {
 		Questions []string `json:"questions"`
 	}
 	
-	if err := json.Unmarshal([]byte(jsonStr), &questionsObj); err != nil {
-		fmt.Println("Warning: Failed to parse questions JSON:", err)
+	// If the entire response is valid JSON with questions
+	if err := json.Unmarshal([]byte(response), &questionsObj); err == nil && len(questionsObj.Questions) > 0 {
+		Log(DEBUG, "Found questions in complete JSON response")
+		return convertToQuestionResponses(questionsObj.Questions), true
+	}
+	
+	// If not, try to find JSON object within text using regex
+	re := regexp.MustCompile(`\{[\s\n]*"questions"[\s\n]*:[\s\n]*\[.*?\][\s\n]*\}`)
+	match := re.FindString(response)
+	
+	if match == "" {
+		Log(DEBUG, "No questions JSON found in response")
+		return nil, false
+	}
+	
+	Log(DEBUG, "Found potential questions JSON: %s", match)
+	
+	// Try to parse the extracted JSON
+	if err := json.Unmarshal([]byte(match), &questionsObj); err != nil {
+		Log(WARN, "Failed to parse questions JSON: %v", err)
 		return nil, false
 	}
 	
 	// Skip if no questions were found
 	if len(questionsObj.Questions) == 0 {
+		Log(DEBUG, "Questions array was empty")
 		return nil, false
 	}
 	
+	return convertToQuestionResponses(questionsObj.Questions), true
+}
+
+// Helper function to convert string questions to QuestionResponse objects
+func convertToQuestionResponses(questions []string) []QuestionResponse {
 	// Limit the number of questions to 3
 	maxQuestions := 3
-	if len(questionsObj.Questions) > maxQuestions {
-		fmt.Printf("Limiting questions to %d (received %d)\n", maxQuestions, len(questionsObj.Questions))
-		questionsObj.Questions = questionsObj.Questions[:maxQuestions]
+	if len(questions) > maxQuestions {
+		Log(INFO, "Limiting questions to %d (received %d)", maxQuestions, len(questions))
+		questions = questions[:maxQuestions]
 	}
 	
 	// Convert to QuestionResponse objects
-	questionResponses := make([]QuestionResponse, len(questionsObj.Questions))
-	for i, q := range questionsObj.Questions {
+	questionResponses := make([]QuestionResponse, len(questions))
+	for i, q := range questions {
 		questionResponses[i] = QuestionResponse{
 			Question: q,
 			Answer:   "", // Will be filled in later
 		}
 	}
 	
-	return questionResponses, len(questionResponses) > 0
+	return questionResponses
 }
 
 // askUserQuestions presents questions to the user and collects answers
