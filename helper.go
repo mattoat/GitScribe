@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"bytes"
 	"path/filepath"
 	"encoding/json"
 )
@@ -157,7 +156,7 @@ func commitChanges(messageFile string) error {
 
 // getCommitMessages retrieves all commit messages between the current branch and the target branch
 func getCommitMessages(targetBranch string) (string, error) {
-	Log(INFO, "Getting commit messages between current branch and %s", targetBranch)
+	Log(INFO, "Getting commit messages unique to the current branch")
 	// Get current branch name
 	cmdBranch := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 	currentBranch, err := cmdBranch.Output()
@@ -168,21 +167,40 @@ func getCommitMessages(targetBranch string) (string, error) {
 	currentBranchStr := strings.TrimSpace(string(currentBranch))
 	Log(DEBUG, "Current branch: %s", currentBranchStr)
 	
-	// Get commit messages between target branch and current branch
-	Log(DEBUG, "Fetching commit messages between %s and %s", targetBranch, currentBranchStr)
-	cmd := exec.Command("git", "log", "--pretty=format:%s", fmt.Sprintf("%s..%s", targetBranch, currentBranchStr))
+	// Get only commits that are in the current branch but not in the target branch
+	// This shows commits unique to the feature branch
+	Log(DEBUG, "Fetching unique commits in %s not in %s", currentBranchStr, targetBranch)
+	
+	// Use git cherry to find commits unique to the current branch
+	// This is more reliable for finding unique commits than complex log commands
+	cmd := exec.Command("git", "cherry", "-v", targetBranch, currentBranchStr)
 	output, err := cmd.Output()
 	if err != nil {
-		Log(ERROR, "Failed to get commit messages: %v", err)
-		return "", fmt.Errorf("failed to get commit messages: %v", err)
+		Log(ERROR, "Failed to get unique commits: %v", err)
+		return "", fmt.Errorf("failed to get unique commits: %v", err)
 	}
 	
-	commitCount := strings.Count(string(output), "\n") + 1
-	if string(output) == "" {
-		commitCount = 0
+	// Process the output to extract just the commit messages
+	lines := strings.Split(string(output), "\n")
+	var commitMessages []string
+	
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		// git cherry output format is "+ <sha> <message>"
+		// We want to extract just the message part
+		parts := strings.SplitN(line, " ", 3)
+		if len(parts) >= 3 {
+			commitMessages = append(commitMessages, parts[2])
+		}
 	}
-	Log(INFO, "Retrieved %d commit messages", commitCount)
-	return string(output), nil
+	
+	result := strings.Join(commitMessages, "\n")
+	commitCount := len(commitMessages)
+	
+	Log(INFO, "Retrieved %d unique commit messages", commitCount)
+	return result, nil
 }
 
 // createPRMessage generates a PR message using the template file, commit messages, and LLM
