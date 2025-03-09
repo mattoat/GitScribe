@@ -149,16 +149,6 @@ func main() {
 			Log(INFO, "Skipping PR creation, message saved to file")
 			fmt.Printf("PR message saved to: %s\n", tempFile)
 			fmt.Println("You can use this message when creating a PR on GitHub.")
-			
-			// Copy to clipboard if possible
-			Log(DEBUG, "Attempting to copy PR message to clipboard")
-			if err := copyToClipboard(tempFile); err != nil {
-				Log(WARN, "Could not copy to clipboard: %v", err)
-				fmt.Println("Note: Could not copy to clipboard:", err)
-			} else {
-				Log(INFO, "PR message copied to clipboard")
-				fmt.Println("PR message copied to clipboard!")
-			}
 		}
 	} else {
 		// For commit messages, proceed with commit
