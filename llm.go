@@ -96,7 +96,8 @@ func GenerateCommitMessage(diff string, config LLMConfig, template string) (stri
 	You've staged your changes and are now tasked with writing a commit message. You will be given a git
 	diff and a template. Use the git diff to determine what changes have been made in this commit. This is important
 	for you to write an accurate and thoughtful commit message. Use the template to generate a commit message. 
-	The commit message should be concise and informative. The people reveiwing your commit message are also professional software engineers, 
+	The commit message should be concise and informative. You should not use complicated words if there is a simpler 
+	alternative. The people reveiwing your commit message are also professional software engineers, 
 	so you can use technical language and do not need to spell out abbreviations such as PR, LLM, FF, etc. 
 	The template is a markdown file, but don't include the comments in your response.
 	The first line of the commit message should be structured as follows:
