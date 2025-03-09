@@ -6,15 +6,27 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 	"path/filepath"
 	"encoding/json"
 )
 
-// Config structure to hold file paths
+// Config structure to hold file paths and settings
 type Config struct {
-	CommitTemplate string `json:"commit_template"`
-	PRTemplate     string `json:"pr_template"`
+	CommitTemplate string    `json:"commit_template"`
+	PRTemplate     string    `json:"pr_template"`
+	LLM            LLMConfig `json:"llm"`
+}
+
+// expandPath expands the tilde in file paths to the user's home directory
+func expandPath(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path // Return original if we can't get home dir
+		}
+		return filepath.Join(home, path[2:])
+	}
+	return path
 }
 
 // loadConfig reads the configuration file.
@@ -27,6 +39,27 @@ func loadConfig(configPath string) (Config, error) {
 	if err := json.Unmarshal(data, &config); err != nil {
 		return config, fmt.Errorf("failed to parse config file: %v", err)
 	}
+	
+	// Expand paths
+	config.CommitTemplate = expandPath(config.CommitTemplate)
+	config.PRTemplate = expandPath(config.PRTemplate)
+	
+	// Set default LLM values if not provided
+	if config.LLM.Model == "" {
+		config.LLM.Model = "gpt-4"
+	}
+	if config.LLM.Temperature == 0 {
+		config.LLM.Temperature = 0.7
+	}
+	if config.LLM.MaxTokens == 0 {
+		config.LLM.MaxTokens = 1000
+	}
+	
+	// Try to get API key from environment if not in config
+	if config.LLM.APIKey == "" {
+		config.LLM.APIKey = os.Getenv("OPENAI_KEY")
+	}
+	
 	return config, nil
 }
 
@@ -40,10 +73,10 @@ func getStagedDiff() (string, error) {
 	return string(output), nil
 }
 
-// createCommitMessage generates a commit message using the template file.
-func createCommitMessage(diff string, templatePath string) (string, error) {
+// createCommitMessage generates a commit message using the template file and LLM.
+func createCommitMessage(diff string, templatePath string, llmConfig LLMConfig) (string, error) {
 	if diff == "" {
-		return "No changes staged. Please stage changes before committing.", nil
+		return "", fmt.Errorf("no changes staged. Please stage changes before committing.")
 	}
 
 	template, err := ioutil.ReadFile(templatePath)
@@ -51,7 +84,13 @@ func createCommitMessage(diff string, templatePath string) (string, error) {
 		return "", fmt.Errorf("failed to read commit template: %v", err)
 	}
 
-	return fmt.Sprintf(string(template), diff), nil
+	// Generate commit message using LLM
+	message, err := GenerateCommitMessage(diff, llmConfig, string(template))
+	if err != nil {
+		return "", fmt.Errorf("LLM generation failed: %v", err)
+	}
+	
+	return message, nil
 }
 
 // openInVim allows the user to edit the commit message.
@@ -70,53 +109,4 @@ func commitChanges(messageFile string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
-}
-
-func main() {
-	// Load config
-	configPath := "config.json"
-	config, err := loadConfig(configPath)
-	if err != nil {
-		fmt.Println("Error loading config:", err)
-		os.Exit(1)
-	}
-
-	diff, err := getStagedDiff()
-	if err != nil {
-		fmt.Println("Error:", err)
-		os.Exit(1)
-	}
-
-	// Generate commit message using template
-	message, err := createCommitMessage(diff, config.CommitTemplate)
-	if err != nil {
-		fmt.Println("Error generating commit message:", err)
-		os.Exit(1)
-	}
-
-	// Create a temporary commit message file
-	tempFile := fmt.Sprintf("commit_message_%d.txt", time.Now().Unix())
-	file, err := os.Create(tempFile)
-	if err != nil {
-		fmt.Println("Error creating temp file:", err)
-		os.Exit(1)
-	}
-	defer os.Remove(tempFile) // Cleanup temp file after commit
-
-	file.WriteString(message)
-	file.Close()
-
-	// Open Vim for the user to edit the message
-	if err := openInVim(tempFile); err != nil {
-		fmt.Println("Error opening Vim:", err)
-		os.Exit(1)
-	}
-
-	// Commit changes with the edited message
-	if err := commitChanges(tempFile); err != nil {
-		fmt.Println("Error committing changes:", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("Commit successful!")
 }
