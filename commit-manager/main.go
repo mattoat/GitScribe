@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,12 @@ import (
 )
 
 func main() {
+	// Define command-line flags
+	generatePR := flag.Bool("pr", false, "Generate a PR message and prepare for PR creation")
+	targetBranch := flag.String("target", "main", "Target branch for PR (default: main)")
+	skipCreate := flag.Bool("skip-create", false, "Skip PR creation on GitHub (only generate message)")
+	flag.Parse()
+
 	// Load config
 	configPath := "config.json"
 	config, err := loadConfig(configPath)
@@ -16,27 +23,48 @@ func main() {
 		os.Exit(1)
 	}
 
-	diff, err := getStagedDiff()
-	if err != nil {
-		fmt.Println("Error:", err)
-		os.Exit(1)
+	var message string
+
+	if *generatePR {
+		// Generate PR message
+		commits, err := getCommitMessages(*targetBranch)
+		if err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+
+		message, err = createPRMessage(commits, config.PRTemplate, config.LLM)
+		if err != nil {
+			fmt.Println("Error generating PR message:", err)
+			os.Exit(1)
+		}
+	} else {
+		// Generate commit message (existing functionality)
+		diff, err := getStagedDiff()
+		if err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+
+		message, err = createCommitMessage(diff, config.CommitTemplate, config.LLM)
+		if err != nil {
+			fmt.Println("Error generating commit message:", err)
+			os.Exit(1)
+		}
 	}
 
-	// Generate commit message using template and LLM
-	message, err := createCommitMessage(diff, config.CommitTemplate, config.LLM)
-	if err != nil {
-		fmt.Println("Error generating commit message:", err)
-		os.Exit(1)
-	}
-
-	// Create a temporary commit message file
-	tempFile := filepath.Join(os.TempDir(), fmt.Sprintf("commit_message_%d.txt", time.Now().Unix()))
+	// Create a temporary message file
+	tempFile := filepath.Join(os.TempDir(), fmt.Sprintf("git_message_%d.txt", time.Now().Unix()))
 	file, err := os.Create(tempFile)
 	if err != nil {
 		fmt.Println("Error creating temp file:", err)
 		os.Exit(1)
 	}
-	defer os.Remove(tempFile) // Cleanup temp file after commit
+	
+	// Only remove the temp file if we're not creating a PR or if it's a commit message
+	if !*generatePR || *skipCreate {
+		defer os.Remove(tempFile)
+	}
 
 	if _, err := file.WriteString(message); err != nil {
 		fmt.Println("Error writing to temp file:", err)
@@ -53,11 +81,40 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Commit changes with the edited message
-	if err := commitChanges(tempFile); err != nil {
-		fmt.Println("Error committing changes:", err)
-		os.Exit(1)
+	if *generatePR {
+		if !*skipCreate {
+			// Create PR using GitHub CLI
+			fmt.Println("Creating PR on GitHub...")
+			prURL, err := createPullRequest(tempFile, *targetBranch)
+			if err != nil {
+				fmt.Println("Error creating PR:", err)
+				os.Exit(1)
+			}
+			fmt.Println("PR created successfully!")
+			fmt.Println("PR URL:", prURL)
+			
+			// Try to open the PR URL in browser
+			if err := openBrowser(prURL); err != nil {
+				fmt.Println("Note: Could not open browser automatically:", err)
+			}
+		} else {
+			// For PR messages without creation, just display the file path
+			fmt.Printf("PR message saved to: %s\n", tempFile)
+			fmt.Println("You can use this message when creating a PR on GitHub.")
+			
+			// Copy to clipboard if possible
+			if err := copyToClipboard(tempFile); err != nil {
+				fmt.Println("Note: Could not copy to clipboard:", err)
+			} else {
+				fmt.Println("PR message copied to clipboard!")
+			}
+		}
+	} else {
+		// For commit messages, proceed with commit
+		if err := commitChanges(tempFile); err != nil {
+			fmt.Println("Error committing changes:", err)
+			os.Exit(1)
+		}
+		fmt.Println("Commit successful!")
 	}
-
-	fmt.Println("Commit successful!")
 } 
