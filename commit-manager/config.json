@@ -1,0 +1,4 @@
+{
+    "commit_template": "~/co/backend/.gitmessage",
+    "pr_template": "~/co/backend/.github/PULL_REQUEST_TEMPLATE.md"
+  }
