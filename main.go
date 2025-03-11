@@ -62,7 +62,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		message, err = createPRMessage(commits, config.PRTemplate, config.LLM)
+		message, err = createPRMessage(commits, config.PRTemplate, config.LLM, config.FirstLineLimit)
 		if err != nil {
 			Log(ERROR, "Failed to create PR message: %v", err)
 			fmt.Println("Error generating PR message:", err)
@@ -78,7 +78,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		message, err = createCommitMessage(diff, config.CommitTemplate, config.LLM)
+		message, err = createCommitMessage(diff, config.CommitTemplate, config.LLM, config.FirstLineLimit)
 		if err != nil {
 			Log(ERROR, "Failed to create commit message: %v", err)
 			fmt.Println("Error generating commit message:", err)

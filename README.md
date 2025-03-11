@@ -75,6 +75,7 @@ The configuration file allows you to customize:
 
 - Commit message template
 - Pull request template
+- First line length limit (for commit and PR messages)
 - LLM settings (model, temperature, max tokens, etc.)
 - Whether to enable interactive questions for PR generation
 
