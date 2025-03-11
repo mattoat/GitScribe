@@ -15,6 +15,7 @@ type Config struct {
 	CommitTemplate string    `json:"commit_template"`
 	PRTemplate     string    `json:"pr_template"`
 	LLM            LLMConfig `json:"llm"`
+	FirstLineLimit int       `json:"first_line_limit"` // Maximum length for the first line
 }
 
 // expandPath expands the tilde in file paths to the user's home directory
@@ -77,6 +78,12 @@ func loadConfig(configPath string) (Config, error) {
 		}
 	}
 	
+	// Set default first line limit if not provided
+	if config.FirstLineLimit == 0 {
+		Log(DEBUG, "Setting default first line limit: 72")
+		config.FirstLineLimit = 72 // Common Git standard
+	}
+	
 	Log(INFO, "Config loaded successfully")
 	return config, nil
 }
@@ -96,7 +103,7 @@ func getStagedDiff() (string, error) {
 }
 
 // createCommitMessage generates a commit message using the template file and LLM.
-func createCommitMessage(diff string, templatePath string, llmConfig LLMConfig) (string, error) {
+func createCommitMessage(diff string, templatePath string, llmConfig LLMConfig, firstLineLimit int) (string, error) {
 	Log(INFO, "Creating commit message using template: %s", templatePath)
 	if diff == "" {
 		Log(ERROR, "No changes staged for commit")
@@ -116,6 +123,11 @@ func createCommitMessage(diff string, templatePath string, llmConfig LLMConfig) 
 	if err != nil {
 		Log(ERROR, "LLM generation failed: %v", err)
 		return "", fmt.Errorf("LLM generation failed: %v", err)
+	}
+	
+	// Apply first line length limit if specified
+	if firstLineLimit > 0 {
+		message = trimFirstLine(message, firstLineLimit)
 	}
 	
 	Log(DEBUG, "Commit message generated successfully (%d chars)", len(message))
@@ -204,7 +216,7 @@ func getCommitMessages(targetBranch string) (string, error) {
 }
 
 // createPRMessage generates a PR message using the template file, commit messages, and LLM
-func createPRMessage(commits string, templatePath string, llmConfig LLMConfig) (string, error) {
+func createPRMessage(commits string, templatePath string, llmConfig LLMConfig, firstLineLimit int) (string, error) {
 	Log(INFO, "Creating PR message using template: %s", templatePath)
 	if commits == "" {
 		Log(ERROR, "No commits found between branches")
@@ -224,6 +236,11 @@ func createPRMessage(commits string, templatePath string, llmConfig LLMConfig) (
 	if err != nil {
 		Log(ERROR, "LLM generation failed: %v", err)
 		return "", fmt.Errorf("LLM generation failed: %v", err)
+	}
+	
+	// Apply first line length limit if specified
+	if firstLineLimit > 0 {
+		message = trimFirstLine(message, firstLineLimit)
 	}
 	
 	Log(DEBUG, "PR message generated successfully (%d chars)", len(message))
@@ -352,4 +369,26 @@ func loadConfigFromPrioritizedLocations(customPath string) (Config, error) {
 	// If we get here, we couldn't find a config file
 	Log(ERROR, "Could not find config file in any standard location")
 	return Config{}, fmt.Errorf("could not find config file in any standard location: %v", lastErr)
+}
+
+// trimFirstLine ensures the first line of a message doesn't exceed the specified limit
+func trimFirstLine(message string, limit int) string {
+	if limit <= 0 {
+		return message // No limit specified
+	}
+	
+	Log(DEBUG, "Checking if first line needs trimming (limit: %d)", limit)
+	
+	lines := strings.Split(message, "\n")
+	if len(lines) == 0 {
+		return message // Empty message
+	}
+	
+	// Check if first line exceeds the limit
+	if len(lines[0]) > limit {
+		Log(DEBUG, "First line exceeds limit (%d > %d), trimming", len(lines[0]), limit)
+		lines[0] = lines[0][:limit]
+	}
+	
+	return strings.Join(lines, "\n")
 }
