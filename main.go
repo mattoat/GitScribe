@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -17,6 +17,7 @@ func main() {
 	configPath := flag.String("config", "", "Path to config file (default: search in standard locations)")
 	dryRun := flag.Bool("dry-run", false, "Generate message but don't commit or create PR")
 	logLevelFlag := flag.String("log-level", "none", "Set logging level (debug, info, warn, error, none)")
+	amendCommit := flag.Bool("amend", false, "Amend the last commit with a new message (includes both last commit and any staged changes)")
 	flag.Parse()
 
 	// Set log level based on flag
@@ -38,8 +39,8 @@ func main() {
 	}
 
 	Log(INFO, "Starting application")
-	Log(DEBUG, "Command-line flags: pr=%v, target=%s, skip-create=%v, config=%s, dry-run=%v, log-level=%s",
-		*generatePR, *targetBranch, *skipCreate, *configPath, *dryRun, *logLevelFlag)
+	Log(DEBUG, "Command-line flags: pr=%v, target=%s, skip-create=%v, config=%s, dry-run=%v, log-level=%s, amend=%v",
+		*generatePR, *targetBranch, *skipCreate, *configPath, *dryRun, *logLevelFlag, *amendCommit)
 
 	// Load config from appropriate location
 	Log(INFO, "Loading configuration")
@@ -66,6 +67,22 @@ func main() {
 		if err != nil {
 			Log(ERROR, "Failed to create PR message: %v", err)
 			fmt.Println("Error generating PR message:", err)
+			os.Exit(1)
+		}
+	} else if *amendCommit {
+		Log(INFO, "Generating message for amending commit")
+		// Get the last commit diff and any staged changes
+		diff, err := getLastCommitDiff()
+		if err != nil {
+			Log(ERROR, "Failed to get last commit diff: %v", err)
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+
+		message, err = createCommitMessage(diff, config.CommitTemplate, config.LLM)
+		if err != nil {
+			Log(ERROR, "Failed to create commit message for amend: %v", err)
+			fmt.Println("Error generating commit message:", err)
 			os.Exit(1)
 		}
 	} else {
@@ -103,7 +120,7 @@ func main() {
 		fmt.Println("Error creating temp file:", err)
 		os.Exit(1)
 	}
-	
+
 	// Only remove the temp file if we're not creating a PR or if it's a commit message
 	if !*generatePR || *skipCreate {
 		Log(DEBUG, "Setting up deferred removal of temporary file")
@@ -150,6 +167,17 @@ func main() {
 			fmt.Printf("PR message saved to: %s\n", tempFile)
 			fmt.Println("You can use this message when creating a PR on GitHub.")
 		}
+	} else if *amendCommit {
+		// For amending commits
+		Log(INFO, "Amending commit")
+		fmt.Println("Amending commit with both the last commit changes and any staged changes...")
+		if err := amendCommitWithMessage(tempFile); err != nil {
+			Log(ERROR, "Failed to amend commit: %v", err)
+			fmt.Println("Error amending commit:", err)
+			os.Exit(1)
+		}
+		Log(INFO, "Commit amended successfully")
+		fmt.Println("Commit amended successfully!")
 	} else {
 		// For commit messages, proceed with commit
 		Log(INFO, "Committing changes")
@@ -161,6 +189,6 @@ func main() {
 		Log(INFO, "Commit completed successfully")
 		fmt.Println("Commit successful!")
 	}
-	
+
 	Log(INFO, "Application completed successfully")
-} 
+}

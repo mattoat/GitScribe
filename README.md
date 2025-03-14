@@ -7,6 +7,7 @@ GitScribe is a tool that helps you generate commit messages and pull request des
 - Generate commit messages based on staged changes
 - Generate pull request descriptions based on commit history
 - Create pull requests directly from the command line
+- Amend commits with AI-generated messages
 - Dry run mode to preview generated messages
 - Configurable logging levels for troubleshooting
 
@@ -46,6 +47,18 @@ gs
 
 This will analyze your staged changes and generate a commit message.
 
+### Amend the last commit with a new message
+
+```
+gs -amend
+```
+
+This will analyze both the changes in your last commit and any new staged changes, generate a new commit message that encompasses all changes, and then amend the commit. This is useful when you want to:
+
+1. Fix a commit message
+2. Add additional changes to the last commit
+3. Do both of the above at once
+
 ### Generate a pull request description
 
 ```
@@ -60,6 +73,7 @@ This will analyze the commits in your branch and generate a pull request descrip
 - `-skip-create`: Generate the PR message but don't create the PR on GitHub
 - `-config <path>`: Specify a custom path to the configuration file
 - `-dry-run`: Generate message but don't commit or create PR
+- `-amend`: Amend the last commit with a new AI-generated message (includes both last commit and any staged changes)
 - `-log-level <level>`: Set logging level (debug, info, warn, error, none)
 
 ## Configuration

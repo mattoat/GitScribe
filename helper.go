@@ -1,13 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"strings"
 	"path/filepath"
-	"encoding/json"
+	"strings"
 )
 
 // Config structure to hold file paths and settings
@@ -46,12 +46,12 @@ func loadConfig(configPath string) (Config, error) {
 		Log(ERROR, "Failed to parse config file: %v", err)
 		return config, fmt.Errorf("failed to parse config file: %v", err)
 	}
-	
+
 	// Expand paths
 	Log(DEBUG, "Expanding template paths")
 	config.CommitTemplate = expandPath(config.CommitTemplate)
 	config.PRTemplate = expandPath(config.PRTemplate)
-	
+
 	// Set default LLM values if not provided
 	if config.LLM.Model == "" {
 		Log(DEBUG, "Setting default LLM model: gpt-4")
@@ -65,7 +65,7 @@ func loadConfig(configPath string) (Config, error) {
 		Log(DEBUG, "Setting default LLM max tokens: 1000")
 		config.LLM.MaxTokens = 1000
 	}
-	
+
 	// Try to get API key from environment if not in config
 	if config.LLM.APIKey == "" {
 		Log(DEBUG, "API key not found in config, checking environment")
@@ -76,7 +76,7 @@ func loadConfig(configPath string) (Config, error) {
 			Log(DEBUG, "OPENAI_KEY found in environment with length: %d", len(config.LLM.APIKey))
 		}
 	}
-	
+
 	Log(INFO, "Config loaded successfully")
 	return config, nil
 }
@@ -117,7 +117,7 @@ func createCommitMessage(diff string, templatePath string, llmConfig LLMConfig) 
 		Log(ERROR, "LLM generation failed: %v", err)
 		return "", fmt.Errorf("LLM generation failed: %v", err)
 	}
-	
+
 	Log(DEBUG, "Commit message generated successfully (%d chars)", len(message))
 	return message, nil
 }
@@ -166,11 +166,11 @@ func getCommitMessages(targetBranch string) (string, error) {
 	}
 	currentBranchStr := strings.TrimSpace(string(currentBranch))
 	Log(DEBUG, "Current branch: %s", currentBranchStr)
-	
+
 	// Get only commits that are in the current branch but not in the target branch
 	// This shows commits unique to the feature branch
 	Log(DEBUG, "Fetching unique commits in %s not in %s", currentBranchStr, targetBranch)
-	
+
 	// Use git cherry to find commits unique to the current branch
 	// This is more reliable for finding unique commits than complex log commands
 	cmd := exec.Command("git", "cherry", "-v", targetBranch, currentBranchStr)
@@ -179,11 +179,11 @@ func getCommitMessages(targetBranch string) (string, error) {
 		Log(ERROR, "Failed to get unique commits: %v", err)
 		return "", fmt.Errorf("failed to get unique commits: %v", err)
 	}
-	
+
 	// Process the output to extract just the commit messages
 	lines := strings.Split(string(output), "\n")
 	var commitMessages []string
-	
+
 	for _, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -195,10 +195,10 @@ func getCommitMessages(targetBranch string) (string, error) {
 			commitMessages = append(commitMessages, parts[2])
 		}
 	}
-	
+
 	result := strings.Join(commitMessages, "\n")
 	commitCount := len(commitMessages)
-	
+
 	Log(INFO, "Retrieved %d unique commit messages", commitCount)
 	return result, nil
 }
@@ -225,7 +225,7 @@ func createPRMessage(commits string, templatePath string, llmConfig LLMConfig) (
 		Log(ERROR, "LLM generation failed: %v", err)
 		return "", fmt.Errorf("LLM generation failed: %v", err)
 	}
-	
+
 	Log(DEBUG, "PR message generated successfully (%d chars)", len(message))
 	return message, nil
 }
@@ -238,7 +238,7 @@ func createPullRequest(prMessageFile string, targetBranch string) (string, error
 		Log(ERROR, "GitHub CLI (gh) not found")
 		return "", fmt.Errorf("GitHub CLI (gh) not found. Please install it from https://cli.github.com/")
 	}
-	
+
 	// Get current branch name
 	cmdBranch := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 	currentBranch, err := cmdBranch.Output()
@@ -248,7 +248,7 @@ func createPullRequest(prMessageFile string, targetBranch string) (string, error
 	}
 	currentBranchStr := strings.TrimSpace(string(currentBranch))
 	Log(DEBUG, "Current branch: %s", currentBranchStr)
-	
+
 	// Push the current branch to remote
 	Log(INFO, "Pushing commits to remote...")
 	pushCmd := exec.Command("git", "push", "-u", "origin", currentBranchStr)
@@ -258,21 +258,21 @@ func createPullRequest(prMessageFile string, targetBranch string) (string, error
 		Log(ERROR, "Failed to push to remote: %v", err)
 		return "", fmt.Errorf("failed to push to remote: %v", err)
 	}
-	
+
 	// Create PR using gh CLI
 	Log(INFO, "Creating PR on GitHub...")
 	cmd := exec.Command("gh", "pr", "create", "--base", targetBranch, "--fill", "--body-file", prMessageFile)
-	
+
 	// Capture the output to get the PR URL
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		Log(ERROR, "Failed to create PR: %v\n%s", err, string(output))
 		return "", fmt.Errorf("failed to create PR: %v\n%s", err, string(output))
 	}
-	
+
 	// Extract PR URL from output
 	outputStr := string(output)
-	
+
 	// Find the URL in the output (usually the last line)
 	lines := strings.Split(strings.TrimSpace(outputStr), "\n")
 	var prURL string
@@ -282,12 +282,12 @@ func createPullRequest(prMessageFile string, targetBranch string) (string, error
 			break
 		}
 	}
-	
+
 	if prURL == "" {
 		Log(WARN, "PR created but couldn't extract URL from output")
 		return "", fmt.Errorf("PR created but couldn't extract URL from output")
 	}
-	
+
 	Log(INFO, "PR created successfully: %s", prURL)
 	return prURL, nil
 }
@@ -352,4 +352,52 @@ func loadConfigFromPrioritizedLocations(customPath string) (Config, error) {
 	// If we get here, we couldn't find a config file
 	Log(ERROR, "Could not find config file in any standard location")
 	return Config{}, fmt.Errorf("could not find config file in any standard location: %v", lastErr)
+}
+
+// getLastCommitDiff retrieves the diff of the last commit.
+func getLastCommitDiff() (string, error) {
+	Log(INFO, "Getting diff from last commit")
+	cmd := exec.Command("git", "show", "--pretty=format:", "--patch")
+	output, err := cmd.Output()
+	if err != nil {
+		Log(ERROR, "Failed to get last commit diff: %v", err)
+		return "", fmt.Errorf("failed to get last commit diff: %v", err)
+	}
+	diffSize := len(output)
+	Log(DEBUG, "Retrieved last commit diff (%d bytes)", diffSize)
+
+	// Check if there are any staged changes
+	stagedCmd := exec.Command("git", "diff", "--cached")
+	stagedOutput, stagedErr := stagedCmd.Output()
+	if stagedErr != nil {
+		Log(ERROR, "Failed to get staged diff: %v", stagedErr)
+		return "", fmt.Errorf("failed to get staged diff: %v", stagedErr)
+	}
+
+	stagedDiffSize := len(stagedOutput)
+	if stagedDiffSize > 0 {
+		Log(INFO, "Found additional staged changes (%d bytes)", stagedDiffSize)
+		// Combine the last commit diff and staged diff
+		combinedDiff := string(output) + "\n" + string(stagedOutput)
+		Log(DEBUG, "Combined diff size: %d bytes", len(combinedDiff))
+		return combinedDiff, nil
+	}
+
+	return string(output), nil
+}
+
+// amendCommitWithMessage amends the last commit with a new message.
+func amendCommitWithMessage(messageFile string) error {
+	Log(INFO, "Amending last commit with message file: %s", messageFile)
+	cmd := exec.Command("git", "commit", "--amend", "-F", messageFile)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+	if err != nil {
+		Log(ERROR, "Failed to amend commit: %v", err)
+	} else {
+		Log(INFO, "Commit amended successfully")
+	}
+	return err
 }
